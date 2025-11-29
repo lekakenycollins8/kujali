@@ -1,12 +1,9 @@
-import { Component, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { Component, effect, EventEmitter, inject, input, Output, ViewChild } from '@angular/core';
 import { MatTable, MatTableDataSource } from '@angular/material/table';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSort } from '@angular/material/sort';
 import { Router } from '@angular/router';
-
-import { SubSink } from 'subsink';
-import { Observable, tap } from 'rxjs';
 
 import { Budget, BudgetRecord } from '@app/model/finance/planning/budgets';
 
@@ -22,10 +19,13 @@ import { ChildBudgetsModalComponent } from '../../modals/child-budgets-modal/chi
 
 export class BudgetTableComponent {
 
-  private _sbS = new SubSink();
+  // Inject dependencies using inject() function
+  private _router$$ = inject(Router);
+  private _dialog = inject(MatDialog);
 
-  @Input() budgets$: Observable<{overview: BudgetRecord[], budgets: any[]}>;
-  @Input() canPromote = false;
+  // Convert @Input to signal inputs
+  budgets = input.required<{overview: BudgetRecord[], budgets: any[]}>();
+  canPromote = input(false);
 
   @Output() doPromote: EventEmitter<void> = new EventEmitter();
 
@@ -38,16 +38,16 @@ export class BudgetTableComponent {
 
   overviewBudgets: BudgetRecord[] = [];
 
-  constructor(private _router$$: Router,
-              private _dialog: MatDialog,
-  ) { }
-
-  ngOnInit(): void {
-    this._sbS.sink = this.budgets$.pipe(tap((o) => {
-      this.overviewBudgets = o.overview;
-      this.dataSource.data = o.budgets;
-    })).subscribe();
+  // Use effect to reactively update data when budgets signal changes
+  constructor() {
+    effect(() => {
+      const budgetData = this.budgets();
+      this.overviewBudgets = budgetData.overview;
+      this.dataSource.data = budgetData.budgets;
+    });
   }
+
+  // No ngOnInit needed - effect in constructor handles reactive updates
 
   /** 
  * Checks whether the user has access to a certain feature.
@@ -81,7 +81,7 @@ export class BudgetTableComponent {
   }
 
   promote() {
-    if (this.canPromote)
+    if (this.canPromote())
       this.doPromote.emit();
   }
 
