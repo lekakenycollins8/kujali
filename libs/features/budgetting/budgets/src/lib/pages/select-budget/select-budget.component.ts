@@ -1,8 +1,8 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { MatDialog } from '@angular/material/dialog';
 
 import { cloneDeep as ___cloneDeep, flatMap as __flatMap } from 'lodash';
-import { Observable, combineLatest, map, tap } from 'rxjs';
 
 import { Logger } from '@iote/bricks-angular';
 
@@ -20,36 +20,41 @@ import { CreateBudgetModalComponent } from '../../components/create-budget-modal
               '../../components/budget-view-styles.scss'],
 })
 /** List of all active budgets on the system. */
-export class SelectBudgetPageComponent implements OnInit
+export class SelectBudgetPageComponent
 {
-  /** Overview which contains all budgets of an organisation */
-  overview$!: Observable<OrgBudgetsOverview>;
-  sharedBudgets$: Observable<any[]>;
+  // Inject dependencies using inject() function
+  private _orgBudgets$$ = inject(OrgBudgetsStore);
+  private _budgets$$ = inject(BudgetsStore);
+  private _dialog = inject(MatDialog);
+  private _logger = inject(Logger);
+
+  // Convert observables to signals
+  overview = toSignal(this._orgBudgets$$.get());
+  sharedBudgets = toSignal(this._budgets$$.get());
 
   showFilter = false;
 
-  // budgetsLoaded: boolean = false;
+  // Use computed for derived state (replaces combineLatest + map)
+  allBudgets = computed(() => {
+    const overview = this.overview();
+    const budgets = this.sharedBudgets();
 
-  allBudgets$: Observable<{overview: BudgetRecord[], budgets: any[]}>;
+    if (!overview || !budgets) {
+      return { overview: [], budgets: [] };
+    }
 
-  constructor(private _orgBudgets$$: OrgBudgetsStore,
-              private _budgets$$: BudgetsStore,
-              private _dialog: MatDialog,
-              private _logger: Logger) 
-  { }
+    const flatOverview = __flatMap(overview);
+    const flatBudgets = __flatMap(budgets);
+    
+    const trBudgets = flatBudgets.map((budget: any) => {
+      budget['endYear'] = budget.startYear + budget.duration - 1;
+      return budget;
+    });
 
-  ngOnInit() {
-    this.overview$ = this._orgBudgets$$.get();
-    this.sharedBudgets$ = this._budgets$$.get();
+    return { overview: flatOverview, budgets: trBudgets };
+  });
 
-    this.allBudgets$ = combineLatest([this.overview$, this._budgets$$.get()])
-                      .pipe(map(([overview, budgets]) => {return {overview: __flatMap(overview), budgets: __flatMap(budgets)}}),
-                            map((overview) => {
-                              const trBudgets = overview.budgets.map((budget: any) => {budget['endYear'] = budget.startYear + budget.duration - 1; return budget;})
-                              // this.budgetsLoaded = true;
-                              return {overview: overview.overview, budgets: trBudgets}
-                            }));
-  }
+  // No ngOnInit needed - signals are reactive by default
 
   applyFilter(event: Event) {
     const filterValue = (event.target as HTMLInputElement).value;
@@ -98,7 +103,9 @@ export class SelectBudgetPageComponent implements OnInit
     toSave.status = BudgetStatus.InUse;
 
     (<any> record).updating = true;
-    // Fire update
+    
+    // Fire update - keeping subscription for now as this is a one-time action
+    // In a full signals refactor, this would use a signal-based state management
     this._budgets$$.update(toSave)
       .subscribe(() => {
         (<any> record).updating = false;
